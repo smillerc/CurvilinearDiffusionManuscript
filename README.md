@@ -1,6 +1,6 @@
 # CurvilinearDiffusion
 
-[![Build Status](https://github.com/smil/CurvilinearDiffusionManuscript.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/smil/CurvilinearDiffusionManuscript.jl/actions/workflows/CI.yml?query=branch%3Amain)
+This repository is to allow users to reproduce the results presented in the manuscript: "" recently submitted to X.
 
 ## Installing
 
