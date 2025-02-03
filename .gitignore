@@ -1,0 +1,17 @@
+/Manifest.toml
+*.vt?
+*.pvd
+*.png
+*.mp4
+*.DS_Store
+*.pvsm
+*.nsys-rep
+*.sqlite
+*.timing
+*.eps
+*.json
+
+*.svg
+*.pdf
+*.csv
+*.zip
