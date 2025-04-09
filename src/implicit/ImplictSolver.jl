@@ -5,6 +5,7 @@ using CurvilinearGrids
 using ILUZero
 using KernelAbstractions
 using Krylov
+using HYPRE
 using KrylovPreconditioners
 using LinearAlgebra
 using LinearOperators
@@ -165,6 +166,9 @@ function direct_solver_alg(algorithm, ::CPU)
   elseif algorithm === :klu
     @info "Using the KLUFactorization direct solver"
     return KLUFactorization(; reuse_symbolic=true, check_pattern=true)
+  elseif algorithm === :hypre_pcg
+    @info "Using HYPRE.PCG"
+    return HYPREAlgorithm(HYPRE.PCG)
   else # if algorithm === :umfpack
     @info "Using the UMFPACKFactorization direct solver"
     return UMFPACKFactorization(; reuse_symbolic=true, check_pattern=true)
@@ -217,8 +221,8 @@ function _direct_solve!(
 
   # For the direct solve, we want to re-use the symbolic factorization (sparsity pattern)
   # but update the A matrix (which we did above via assemble!(...))
-  # Setting isfresh=true will tell the direct solver that the 
-  # A matrix has been changed. For iterative Krylov solvers, we don't need to 
+  # Setting isfresh=true will tell the direct solver that the
+  # A matrix has been changed. For iterative Krylov solvers, we don't need to
   # do this.
 
   # The _only_ time you can get away with not refreshing the matrix is when the A
@@ -241,13 +245,27 @@ function _direct_solve!(
     cutoff!(scheme.linear_problem.u)
   end
 
-  @timeit "next_dt" begin
-    next_Δt = next_dt(scheme.linear_problem.u, domain_u, Δt; kwargs...)
+  # @timeit "next_dt" begin
+  # next_Δt = next_dt(scheme.linear_problem.u, domain_u, Δt; kwargs...)
+  next_Δt = Inf
+  # end
+
+  # copyto!(domain_u, scheme.linear_problem.u) # update solution
+  for i in LinearIndices(scheme.iterators.mesh)
+    val = getindex_debug(scheme.linear_problem.u, [i])
+    domain_u[i] = val[1] # update solution
+
   end
-
-  copyto!(domain_u, scheme.linear_problem.u) # update solution
-
   return nothing, next_Δt
+end
+
+function getindex_debug(b::HYPREVector, i::AbstractVector)
+  nvalues = HYPRE.HYPRE_Int(length(i))
+  indices = convert(Vector{HYPRE.HYPRE_BigInt}, i)
+  values = Vector{HYPRE.HYPRE_Complex}(undef, length(i))
+  # @check
+  HYPRE.HYPRE_IJVectorGetValues(b.ijvector, nvalues, indices, values)
+  return values
 end
 
 function _iterative_solve!(
@@ -374,6 +392,10 @@ end
 function cutoff!(a)
   backend = KernelAbstractions.get_backend(a)
   cutoff_kernel!(backend)(a; ndrange=size(a))
+  return nothing
+end
+
+function cutoff!(a::HYPREVector)
   return nothing
 end
 

@@ -5,19 +5,23 @@ using KernelAbstractions
 using Glob
 using LinearAlgebra
 
+using MPI, LinearSolve, HYPRE
+
+MPI.Init()
+
 # @static if Sys.islinux()
 #   using MKL
 # elseif Sys.isapple()
-#   using AppleAccelerate
+using AppleAccelerate
 # end
 
-# NMAX = Sys.CPU_THREADS
-# BLAS.set_num_threads(NMAX)
-# BLAS.get_num_threads()
+NMAX = Sys.CPU_THREADS
+BLAS.set_num_threads(NMAX)
+BLAS.get_num_threads()
 
-# @show BLAS.get_config()
+@show BLAS.get_config()
 
-dev = :GPU
+dev = :CPU
 const DT = Float64
 
 if dev === :GPU
@@ -73,7 +77,7 @@ end
 
 function initialize_mesh(DT)
   # ni = nj = 1001
-  ni = nj = 101
+  ni = nj = 2001
   nhalo = 1
   return wavy_grid(ni, nj, nhalo)
   # return uniform_grid(ni, nj, nhalo)
@@ -187,8 +191,9 @@ function solve_prob(scheme, case=:no_source; maxiter=Inf, maxt=0.2, kwargs...)
   global io_interval = 0.01
   global io_next = io_interval
   @timeit "update_conductivity!" update_conductivity!(scheme, mesh, T, ρ, cₚ, κ)
-  @timeit "save_vtk" CurvilinearDiffusion.save_vtk(scheme, T, ρ, mesh, iter, t, casename)
+  # @timeit "save_vtk" CurvilinearDiffusion.save_vtk(scheme, T, ρ, mesh, iter, t, casename)
 
+  reset_timer!()
   while true
     @printf "cycle: %i t: %.4e, Δt: %.3e\n" iter t Δt
     @timeit "nonlinear_thermal_conduction_step!" begin
@@ -230,13 +235,13 @@ function solve_prob(scheme, case=:no_source; maxiter=Inf, maxt=0.2, kwargs...)
     Δt = min(next_dt, 1e-4)
   end
 
-  @timeit "save_vtk" CurvilinearDiffusion.save_vtk(scheme, T, ρ, mesh, iter, t, casename)
+  # @timeit "save_vtk" CurvilinearDiffusion.save_vtk(scheme, T, ρ, mesh, iter, t, casename)
 
-  print_timer()
+
   return scheme, mesh, T
 end
 
-# @profview 
+# @profview
 begin
   cd(@__DIR__)
   rm.(glob("*.vts"))
@@ -249,16 +254,18 @@ begin
 
   # No source
   scheme, mesh, temperature = solve_prob(
-    :pseudo_transient,
-    # :implicit,
+    # :pseudo_transient,
+    :implicit,
     :no_source;
-    maxiter=Inf,
+    maxiter=4,
     maxt=0.4,
     direct_solve=false,
+    direct_solver=:hypre_pcg,
     mean=:harmonic,
     error_check_interval=2,
     # CFL=0.4,
     refresh_matrix=false,
+    prec=HYPRE.BoomerAMG, verbose=true
   )
 
   # With source
@@ -279,5 +286,41 @@ begin
   #   # CFL=0.5,
   #   subcycle_conductivity=false,
   # )
-  nothing
+  print_timer()
+  scheme
 end
+
+
+begin
+
+  function try_hypre(scheme)
+    reset_timer!()
+    A = scheme.linear_problem.A
+    b = scheme.linear_problem.b
+    prob = LinearProblem(A, b)
+    alg = HYPREAlgorithm(HYPRE.GMRES)
+    # alg = HYPREAlgorithm(HYPRE.PCG)
+    # alg = HYPREAlgorithm(HYPRE.Hybrid)
+
+    lin_prob = init(prob, alg)
+    prec = HYPRE.BoomerAMG
+    @timeit "hypre" begin
+      sol = LinearSolve.solve!(lin_prob; Pl=prec)
+      # sol = solve(prob, alg; Pl=prec)
+    end
+    prob, sol
+  end
+
+  hyp_prob, sol = try_hypre(scheme)
+  nothing
+  print_timer()
+end
+
+# function getindex_debug(b::HYPREVector, i::AbstractVector)
+#   nvalues = HYPRE.HYPRE_Int(length(i))
+#   indices = convert(Vector{HYPRE.HYPRE_BigInt}, i)
+#   values = Vector{HYPRE.HYPRE_Complex}(undef, length(i))
+#   # @check
+#   HYPRE.HYPRE_IJVectorGetValues(b.ijvector, nvalues, indices, values)
+#   return values
+# end
