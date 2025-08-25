@@ -21,6 +21,7 @@ using ..BoundaryConditions
 include("../averaging.jl")
 include("../validity_checks.jl")
 include("../edge_terms.jl")
+include("../twilight_zone.jl")
 
 export PseudoTransientSolver
 
@@ -184,6 +185,10 @@ function step!(
   cₚ,
   κ,
   dt;
+  t=0,
+  tz=false,
+  tz_dim=1,
+  no_t=true,
   max_iter=1500,
   rtol=1e-5,
   atol=sqrt(eps(DT)),
@@ -268,12 +273,12 @@ function step!(
       # )
 
       @timeit "compute_flux!" compute_flux!(solver, mesh)
-      @timeit "compute_update!" compute_update!(solver, mesh, dt)
+      @timeit "compute_update!" compute_update!(solver, mesh, dt; ρ, cₚ, t, tz, tz_dim, no_t)
 
       # Apply a cutoff function to remove negative / non-finite values
 
       if (iter >= min_err_check && iter % err_interval == 0 || iter == 1)
-        @timeit "update_residual!" update_residual!(solver, mesh, dt)
+        @timeit "update_residual!" update_residual!(solver, mesh, dt; ρ, cₚ, t, tz, tz_dim, no_t)
         # validate_scalar(solver.res, domain, nhalo, :resid; enforce_positivity=false)
 
         norm_iter += 1
